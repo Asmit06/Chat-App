@@ -1,5 +1,6 @@
 import Message from "../models/message.model.js"
 import Conversation from "../models/conversation.model.js"
+import { getReceiverSocketId, io } from "../socket/socket.js";
 
 export const sendMessage = async (req,res)=>{
     try{
@@ -11,17 +12,30 @@ export const sendMessage = async (req,res)=>{
             participants: { $all: [recieverId, senderId] },
         });
 
+        let newMessage;
+
         if(!existingConversation){
             existingConversation = await Conversation.create({
 				participants: [senderId, recieverId],
 			});
+            newMessage = new Message({
+                senderId,
+                recieverId: recieverId,
+                message,
+            });
+        }else{
+            newMessage = new Message({
+                senderId,
+                recieverId: recieverId,
+                message,
+            });
         }
 
-        const newMessage = new Message({
-			senderId,
-            recieverId: recieverId,
-            message,
-		});
+        // const newMessage = new Message({
+		// 	senderId,
+        //     recieverId: recieverId,
+        //     message,
+		// });
 
         if(newMessage){
             existingConversation.messages.push(newMessage._id);
@@ -32,7 +46,12 @@ export const sendMessage = async (req,res)=>{
 
         await Promise.all([existingConversation.save(), newMessage.save()]);
 
-        res.status(201).json({newMessage});
+        const reciverSocketId = getReceiverSocketId(recieverId);
+        if(reciverSocketId){
+            io.to(reciverSocketId).emit("newMessage", newMessage);
+        }
+        
+        res.status(201).json(newMessage);
     }catch(error){
         console.log("Error in sendMessage controller: ", error.message);
         res.status(500).json({error: "Internal Server Error"});
